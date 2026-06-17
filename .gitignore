@@ -1,5 +1,6 @@
-# This .gitignore file is for a Unity project.
+# Comprehensive Unity .gitignore for nested or root setups
 
+# --- Unity Folders ---
 /[Ll]ibrary/
 /[Tt]emp/
 /[Oo]bj/
@@ -7,20 +8,21 @@
 /[Bb]uilds/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
-
-# Memory Captures
 /[Mm]emoryCaptures/
 
-# Asset Import Settings Mask
-/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+# --- Nested Unity Folders (Catch-all for "GPS Panic/Library" etc) ---
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
 
-# Asset Search Cache
-/[Aa]ssets/[Ss]earch[Dd]ata/
-
-# Record files
-/[Rr]ecordings/
-
-# Generated files
+# --- IDE Folders ---
+.vs/
+.vscode/
+.idea/
 *.csproj
 *.unityproj
 *.sln
@@ -36,16 +38,9 @@
 *.IDB
 *.VC.db
 *.VC.opendb
+**/[Vv]isualStudio.Tests/
 
-# Unity3D generated meta files
-*.pidb.meta
-*.pdb.meta
-*.mdb.meta
-
-# Unity3D generated file lock
-kube.lock
-
-# OS generated files
+# --- OS Junk ---
 .DS_Store
 .DS_Store?
 ._*
@@ -54,12 +49,3 @@ kube.lock
 Icon?
 ehthumbs.db
 Thumbs.db
-
-# Crashlytics
-Crashlytics/
-
-# VS Code
-.vscode/
-
-# PlasticSCM
-.plastic/

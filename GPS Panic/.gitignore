@@ -1,0 +1,65 @@
+# This .gitignore file is for a Unity project.
+
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+
+# Memory Captures
+/[Mm]emoryCaptures/
+
+# Asset Import Settings Mask
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+
+# Asset Search Cache
+/[Aa]ssets/[Ss]earch[Dd]ata/
+
+# Record files
+/[Rr]ecordings/
+
+# Generated files
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.opendb
+*.IDB
+*.VC.db
+*.VC.opendb
+
+# Unity3D generated meta files
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Unity3D generated file lock
+kube.lock
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
+
+# Crashlytics
+Crashlytics/
+
+# VS Code
+.vscode/
+
+# PlasticSCM
+.plastic/
