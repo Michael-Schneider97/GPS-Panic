@@ -196,10 +196,7 @@ MonoBehaviour:
   totalLanes: 3
   laneChangeSpeed: 15
   steeringSensitivity: 0.01
-  laneSpeedMultipliers:
-  - 1
-  - 1.5
-  - 3
+  roadGenerator: {fileID: 0}
 --- !u!212 &422784571
 SpriteRenderer:
   serializedVersion: 2
@@ -456,13 +453,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f8e3ae27bde2088428ed8f8c465eb5bd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GPSPanic.Road.Spline.SplineRoadGenerator
-  straightPrefabs:
-  - {fileID: 1223849572883775205, guid: ec822203cced6cf4fa37ae32ae2a459c, type: 3}
-  transitionPrefabs: []
-  exitPrefabs: []
+  genericTemplate: {fileID: 1223849572883775205, guid: ec822203cced6cf4fa37ae32ae2a459c, type: 3}
+  exitTemplate: {fileID: 0}
   playerTransform: {fileID: 422784572}
   spawnAheadDistance: 200
   initialSegments: 10
+  currentLaneCount: 3
+  curveIntensity: 15
+  maxTurnAngle: 25
+  laneChangeChance: 0.3
+  turnChance: 0.5
+  activeSegments: []
 --- !u!1 &619394800
 GameObject:
   m_ObjectHideFlags: 0

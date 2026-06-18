@@ -5,24 +5,33 @@ namespace GPSPanic.Road.Spline
 {
     public class SplineRoadGenerator : MonoBehaviour
     {
-        [Header("Prefabs")]
-        public RoadSegmentData[] straightPrefabs;
-        public RoadSegmentData[] transitionPrefabs;
-        public RoadSegmentData[] exitPrefabs;
+        [Header("Template Prefabs")]
+        [Tooltip("A generic 1-spline segment for Straights, Curves, and Lane Math.")]
+        public RoadSegmentData genericTemplate;
+        [Tooltip("A 2-spline segment for Exit Ramps.")]
+        public RoadSegmentData exitTemplate;
 
         [Header("Generation Settings")]
         public Transform playerTransform;
-        public float spawnAheadDistance = 200f;
-        public int initialSegments = 15;
+        public float spawnAheadDistance = 250f;
+        public int initialSegments = 10;
 
-        private List<RoadSegmentData> activeSegments = new List<RoadSegmentData>();
+        [Header("Highway Logic")]
+        public int currentLaneCount = 3;
+        public float curveIntensity = 15f;
+        public float maxTurnAngle = 25f; // Max degrees the exit can deviate from the entrance
+        [Range(0, 1)] public float laneChangeChance = 0.3f;
+        [Range(0, 1)] public float turnChance = 0.7f;
+
+        public List<RoadSegmentData> activeSegments = new List<RoadSegmentData>();
         private Vector3 nextSpawnPosition = Vector3.zero;
         private Quaternion nextSpawnRotation = Quaternion.identity;
-        private int currentLaneCount = 3;
+
+        // Track the current 'heading' to ensure smooth continuity
+        private float currentWorldHeading = 0f;
 
         private void Start()
         {
-            // Initial burst of road
             for (int i = 0; i < initialSegments; i++)
             {
                 GenerateNextSegment();
@@ -33,71 +42,109 @@ namespace GPSPanic.Road.Spline
         {
             if (playerTransform == null) return;
 
-            // Trigger next segment based on distance to the end of the current road
             if (Vector3.Distance(playerTransform.position, nextSpawnPosition) < spawnAheadDistance)
             {
                 GenerateNextSegment();
-                
-                // Cleanup old road behind the player
-                if (activeSegments.Count > initialSegments + 5)
-                {
-                    RoadSegmentData old = activeSegments[0];
-                    activeSegments.RemoveAt(0);
-                    Destroy(old.gameObject);
-                }
+                CleanupOldSegments();
             }
         }
 
         private void GenerateNextSegment()
         {
-            RoadSegmentData prefab = SelectNextPrefab();
-            if (prefab == null) return;
+            if (genericTemplate == null) return;
 
-            // Instantiate at the last exit's position and rotation
-            RoadSegmentData segment = Instantiate(prefab, nextSpawnPosition, nextSpawnRotation, transform);
-            
-            // SNAPPING: Align segment entrance to the previous exit exactly
+            int startLanes = currentLaneCount;
+            int endLanes = currentLaneCount;
+
+            if (Random.value < laneChangeChance)
+            {
+                int change = Random.value > 0.5f ? 1 : -1;
+                endLanes = Mathf.Clamp(startLanes + change, 1, 7);
+            }
+
+            // Instantiate with the current world rotation
+            RoadSegmentData segment = Instantiate(genericTemplate, nextSpawnPosition, nextSpawnRotation, transform);
+
             if (segment.entrancePoint != null)
             {
                 Vector3 localEntrancePos = segment.entrancePoint.localPosition;
-                // Move the segment root so the entrance point overlaps nextSpawnPosition exactly
                 segment.transform.position -= segment.transform.TransformDirection(localEntrancePos);
             }
 
-            // DYNAMIC MESH: Build the 2D vector look
+            // SMOOTH CURVATURE: Apply Bézier math
+            if (Random.value < turnChance)
+            {
+                ApplySmoothTurn(segment);
+            }
+
             if (segment.TryGetComponent<RoadMesh2D>(out var roadMesh))
             {
-                roadMesh.Generate2DRoad(currentLaneCount);
+                roadMesh.Generate2DRoad(startLanes, endLanes);
             }
+
+            // CACHE LENGTH for locomotion stability
+            segment.CacheLength();
 
             activeSegments.Add(segment);
 
-            // Save the exit of this new segment for the next one
             if (segment.exitPoint != null)
             {
                 nextSpawnPosition = segment.exitPoint.position;
                 nextSpawnRotation = segment.exitPoint.rotation;
-                currentLaneCount = segment.exitLaneCount;
-            }
-            else
-            {
-                Debug.LogError($"Road segment {segment.name} is missing an ExitPoint!");
+                currentLaneCount = endLanes;
             }
         }
 
-        private RoadSegmentData SelectNextPrefab()
+        private void ApplySmoothTurn(RoadSegmentData segment)
         {
-            // Simplified for reliability: primarily use straights
-            if (straightPrefabs == null || straightPrefabs.Length == 0) return null;
-            
-            List<RoadSegmentData> valid = new List<RoadSegmentData>();
-            foreach (var p in straightPrefabs)
-            {
-                if (p.entranceLaneCount == currentLaneCount) valid.Add(p);
-            }
+            var container = segment.GetComponent<UnityEngine.Splines.SplineContainer>();
+            if (container == null) return;
 
-            if (valid.Count > 0) return valid[Random.Range(0, valid.Count)];
-            return straightPrefabs[0];
+            var spline = container.Spline;
+            if (spline.Count < 2) return;
+
+            // We manipulate the last point to create a curve
+            // For a smooth road, we want the entrance tangent to be purely 'Forward' (local Y)
+            // and the exit tangent to be our new desired direction.
+            
+            float turnAngle = Random.Range(-maxTurnAngle, maxTurnAngle);
+            float roadLength = spline.GetLength();
+            
+            // Calculate new local position for the exit knot
+            // Assuming local Y is forward and local X is right/left
+            float rad = turnAngle * Mathf.Deg2Rad;
+            float targetX = Mathf.Sin(rad) * roadLength;
+            float targetY = Mathf.Cos(rad) * roadLength;
+
+            var lastKnot = spline[spline.Count - 1];
+            lastKnot.Position = new Unity.Mathematics.float3(targetX, targetY, 0);
+            
+            // Set Tangents for smooth Bézier curve (C1 Continuity)
+            // In knot: Handle coming into the point
+            // Out knot: Handle leaving the point
+            float tangentStrength = roadLength * 0.5f;
+            
+            // Start Knot: Force straight exit
+            var firstKnot = spline[0];
+            firstKnot.TangentOut = new Unity.Mathematics.float3(0, tangentStrength, 0);
+            spline[0] = firstKnot;
+
+            // End Knot: Angled entry
+            lastKnot.TangentIn = new Unity.Mathematics.float3(Mathf.Sin(rad) * -tangentStrength, -Mathf.Cos(rad) * tangentStrength, 0);
+            spline[spline.Count - 1] = lastKnot;
+
+            // Update sockets
+            segment.SendMessage("SetupSockets", SendMessageOptions.DontRequireReceiver);
+        }
+
+        private void CleanupOldSegments()
+        {
+            if (activeSegments.Count > initialSegments + 5)
+            {
+                RoadSegmentData old = activeSegments[0];
+                activeSegments.RemoveAt(0);
+                Destroy(old.gameObject);
+            }
         }
     }
 }

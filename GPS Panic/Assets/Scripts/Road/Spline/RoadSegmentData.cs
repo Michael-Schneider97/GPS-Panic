@@ -27,7 +27,15 @@ namespace GPSPanic.Road.Spline
         [Header("Type")]
         public RoadSegmentType segmentType = RoadSegmentType.Straight;
 
+        [HideInInspector] public float cachedLength;
+
         public Vector3 GetExitPosition() => exitPoint.position;
         public Quaternion GetExitRotation() => exitPoint.rotation;
+
+        public void CacheLength()
+        {
+            var container = GetComponent<UnityEngine.Splines.SplineContainer>();
+            if (container != null) cachedLength = container.CalculateLength();
+        }
     }
 }

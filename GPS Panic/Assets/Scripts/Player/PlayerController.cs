@@ -1,5 +1,8 @@
 using UnityEngine;
 using GPSPanic.Input;
+using GPSPanic.Road.Spline;
+using UnityEngine.Splines;
+using Unity.Mathematics;
 using System.Collections;
 
 namespace GPSPanic.Player
@@ -7,21 +10,24 @@ namespace GPSPanic.Player
     public class PlayerController : MonoBehaviour
     {
         [Header("Movement Settings")]
-        [SerializeField] private float baseSpeed = 10f;
-        [SerializeField] private float speedScaleRate = 0.1f;
+        [SerializeField] private float baseSpeed = 15f;
+        [SerializeField] private float speedScaleRate = 0.05f;
         [SerializeField] private float laneWidth = 3f;
         [SerializeField] private int totalLanes = 3;
         [SerializeField] private float laneChangeSpeed = 15f;
         [SerializeField] private float steeringSensitivity = 0.01f;
 
-        [Header("Lane Speed Multipliers")]
-        [SerializeField] private float[] laneSpeedMultipliers = { 1.0f, 1.5f, 3.0f };
+        [Header("References")]
+        [SerializeField] private SplineRoadGenerator roadGenerator;
 
-        private int currentLane = 1; // Middle lane (0, 1, 2)
-        private float currentHorizontalPosition = 0f;
+        private int currentLane = 1; 
+        private float currentHorizontalOffset = 0f;
         private float currentVerticalSpeed = 0f;
         private float ambientSpeedScale = 1.0f;
-        private bool isChangingLane = false;
+        
+        // STABLE TRACKING: Use object reference instead of volatile index
+        private RoadSegmentData currentSegment;
+        private float distanceInCurrentSegment = 0f;
         private bool isDragging = false;
 
         private void Start()
@@ -34,9 +40,8 @@ namespace GPSPanic.Player
                 InputManager.Instance.OnTouchReleased += HandleTouchReleased;
             }
 
-            currentHorizontalPosition = GetLaneXPosition(currentLane);
-            transform.position = new Vector3(currentHorizontalPosition, 0f, 0f);
             currentVerticalSpeed = baseSpeed;
+            if (roadGenerator == null) roadGenerator = FindFirstObjectByType<SplineRoadGenerator>();
         }
 
         private void OnDestroy()
@@ -52,98 +57,96 @@ namespace GPSPanic.Player
 
         private void Update()
         {
+            if (roadGenerator == null || roadGenerator.activeSegments.Count == 0) return;
+
+            // Initialize current segment if starting
+            if (currentSegment == null) currentSegment = roadGenerator.activeSegments[0];
+
             UpdateSpeed();
-            UpdateMovement();
+            UpdateSplineMovement();
         }
 
         private void UpdateSpeed()
         {
-            // GDD: Ambient speed scales up slowly over time
             ambientSpeedScale += speedScaleRate * Time.deltaTime;
-
-            // GDD: Determined by individual lane occupied
-            int clampedLane = Mathf.Clamp(currentLane, 0, laneSpeedMultipliers.Length - 1);
-            float targetSpeed = baseSpeed * ambientSpeedScale * laneSpeedMultipliers[clampedLane];
-            currentVerticalSpeed = Mathf.Lerp(currentVerticalSpeed, targetSpeed, Time.deltaTime * 2f);
-
-            // Update GameManager multiplier
-            if (Core.GameManager.Instance != null)
-            {
-                Core.GameManager.Instance.UpdateLaneMultiplier(laneSpeedMultipliers[clampedLane]);
-            }
+            currentVerticalSpeed = baseSpeed * ambientSpeedScale;
         }
 
-        private void UpdateMovement()
+        private void OnDrawGizmos()
         {
-            // Vertical movement (forward)
-            transform.Translate(Vector3.up * currentVerticalSpeed * Time.deltaTime);
-
-            // Horizontal movement
-            if (!isDragging && !isChangingLane)
-            {
-                // Snap back to lane center
-                float targetX = GetLaneXPosition(currentLane);
-                currentHorizontalPosition = Mathf.Lerp(currentHorizontalPosition, targetX, Time.deltaTime * laneChangeSpeed);
-            }
-
-            // Boundary clamping for arcade steering
-            float halfTotalWidth = (totalLanes * laneWidth) / 2f;
-            currentHorizontalPosition = Mathf.Clamp(currentHorizontalPosition, -halfTotalWidth, halfTotalWidth);
-
-            transform.position = new Vector3(currentHorizontalPosition, transform.position.y, transform.position.z);
+            Gizmos.color = Color.magenta;
+            Gizmos.DrawWireSphere(transform.position, 0.6f);
+            Gizmos.DrawRay(transform.position, transform.up * 3f);
         }
 
-        private void HandleSwipeLeft()
+        private void UpdateSplineMovement()
         {
-            if (currentLane > 0)
+            // 1. Progress distance
+            distanceInCurrentSegment += currentVerticalSpeed * Time.deltaTime;
+
+            // 2. Check for transition
+            // Using cachedLength for stability and performance
+            if (distanceInCurrentSegment >= currentSegment.cachedLength)
             {
-                currentLane--;
-                StartCoroutine(ChangeLaneRoutine(GetLaneXPosition(currentLane)));
+                TransitionToNextSegment();
+            }
+
+            // 3. Evaluate Position
+            var splineContainer = currentSegment.GetComponent<SplineContainer>();
+            float normalizedT = Mathf.Clamp01(distanceInCurrentSegment / currentSegment.cachedLength);
+            splineContainer.Evaluate(normalizedT, out float3 worldPos, out float3 tangent, out float3 up);
+
+            // 4. Horizontal Offset
+            if (!isDragging)
+            {
+                float targetX = (currentLane - (totalLanes - 1) / 2f) * laneWidth;
+                currentHorizontalOffset = Mathf.Lerp(currentHorizontalOffset, targetX, Time.deltaTime * laneChangeSpeed);
+            }
+
+            // 5. Final Transform
+            float3 right = math.normalize(math.cross(tangent, new float3(0, 0, 1)));
+            transform.position = (Vector3)worldPos + (Vector3)(right * currentHorizontalOffset);
+            
+            if (math.lengthsq(tangent) > 0.001f)
+            {
+                Quaternion targetRot = Quaternion.LookRotation(Vector3.forward, (Vector3)tangent);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 10f);
             }
         }
 
-        private void HandleSwipeRight()
+        private void TransitionToNextSegment()
         {
-            if (currentLane < totalLanes - 1)
+            int currentIndex = roadGenerator.activeSegments.IndexOf(currentSegment);
+            
+            if (currentIndex >= 0 && currentIndex < roadGenerator.activeSegments.Count - 1)
             {
-                currentLane++;
-                StartCoroutine(ChangeLaneRoutine(GetLaneXPosition(currentLane)));
+                // Hand off to the next piece in the generator's list
+                distanceInCurrentSegment -= currentSegment.cachedLength;
+                currentSegment = roadGenerator.activeSegments[currentIndex + 1];
+            }
+            else
+            {
+                // We've reached the very end of all generated road (shouldn't happen with spawnAheadDistance)
+                distanceInCurrentSegment = currentSegment.cachedLength;
             }
         }
+
+        private void HandleSwipeLeft() { if (currentLane > 0) currentLane--; }
+        private void HandleSwipeRight() { if (currentLane < totalLanes - 1) currentLane++; }
 
         private void HandleDragDelta(Vector2 delta)
         {
             isDragging = true;
-            // GDD: Manual micro-steering control, overrides lane locking
-            currentHorizontalPosition += delta.x * steeringSensitivity;
+            currentHorizontalOffset += delta.x * steeringSensitivity;
+            float maxHalfWidth = (totalLanes * laneWidth) / 2f;
+            currentHorizontalOffset = Mathf.Clamp(currentHorizontalOffset, -maxHalfWidth, maxHalfWidth);
         }
 
         private void HandleTouchReleased()
         {
             isDragging = false;
-            // GDD: Releasing the touch smoothly glides the vehicle into the nearest defined lane center
-            currentLane = Mathf.RoundToInt((currentHorizontalPosition / laneWidth) + (totalLanes - 1) / 2f);
+            currentLane = Mathf.RoundToInt((currentHorizontalOffset / laneWidth) + (totalLanes - 1) / 2f);
             currentLane = Mathf.Clamp(currentLane, 0, totalLanes - 1);
-        }
-
-        private float GetLaneXPosition(int laneIndex)
-        {
-            return (laneIndex - (totalLanes - 1) / 2f) * laneWidth;
-        }
-
-        private IEnumerator ChangeLaneRoutine(float targetX)
-        {
-            isChangingLane = true;
-            float startX = currentHorizontalPosition;
-            float t = 0;
-            while (t < 1.0f)
-            {
-                t += Time.deltaTime * laneChangeSpeed;
-                currentHorizontalPosition = Mathf.Lerp(startX, targetX, t);
-                yield return null;
-            }
-            currentHorizontalPosition = targetX;
-            isChangingLane = false;
         }
     }
 }

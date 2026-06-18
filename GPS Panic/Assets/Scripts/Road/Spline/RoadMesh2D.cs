@@ -19,17 +19,17 @@ namespace GPSPanic.Road.Spline
 
         private static Material _sharedMaterial;
 
-        public void Generate2DRoad(int laneCount)
+        public void Generate2DRoad(int startLanes, int endLanes)
         {
+            if (GetComponent<SplineContainer>() == null) return;
             var spline = GetComponent<SplineContainer>().Spline;
             float length = spline.GetLength();
             if (length < 0.1f) return;
 
-            float totalWidth = (laneCount * laneWidth) + (shoulderWidth * 2);
             int longitudinalSegments = Mathf.Max(2, Mathf.CeilToInt(length * segmentsPerUnit));
 
             Mesh mesh = new Mesh();
-            mesh.name = "VectorRoad_Robust";
+            mesh.name = "ArchitecturalRoad";
 
             List<Vector3> vertices = new List<Vector3>();
             List<Color> colors = new List<Color>();
@@ -40,24 +40,20 @@ namespace GPSPanic.Road.Spline
                 float t = i / (float)longitudinalSegments;
                 spline.Evaluate(t, out float3 pos, out float3 tangent, out float3 up);
                 
-                // PURE 2D PERPENDICULAR: Avoids all 3D cross-product edge cases
+                // Dynamic Lane Count for this slice
+                float currentLaneCount = Mathf.Lerp(startLanes, endLanes, t);
+                float totalWidth = (currentLaneCount * laneWidth) + (shoulderWidth * 2);
+
                 float2 dir2D = math.normalizesafe(new float2(tangent.x, tangent.y), new float2(0, 1));
                 float3 side = new float3(-dir2D.y, dir2D.x, 0);
 
-                float halfRoad = (laneCount * laneWidth) / 2f;
+                float halfRoad = (currentLaneCount * laneWidth) / 2f;
                 float halfTotal = totalWidth / 2f;
 
-                // Points across the road
-                Vector3 p1 = (Vector3)(pos - (side * halfTotal));
-                Vector3 p2 = (Vector3)(pos - (side * halfRoad));
-                Vector3 p3 = (Vector3)(pos + (side * halfRoad));
-                Vector3 p4 = (Vector3)(pos + (side * halfTotal));
-
-                // Restoring explicit safety checks
-                vertices.Add(SafeVector(p1));
-                vertices.Add(SafeVector(p2));
-                vertices.Add(SafeVector(p3));
-                vertices.Add(SafeVector(p4));
+                vertices.Add(SafeVector((Vector3)(pos - (side * halfTotal))));
+                vertices.Add(SafeVector((Vector3)(pos - (side * halfRoad))));
+                vertices.Add(SafeVector((Vector3)(pos + (side * halfRoad))));
+                vertices.Add(SafeVector((Vector3)(pos + (side * halfTotal))));
 
                 colors.Add(shoulderColor);
                 colors.Add(roadColor);
