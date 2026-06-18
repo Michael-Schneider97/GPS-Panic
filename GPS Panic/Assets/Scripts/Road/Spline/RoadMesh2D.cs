@@ -40,38 +40,45 @@ namespace GPSPanic.Road.Spline
                 float t = i / (float)longitudinalSegments;
                 spline.Evaluate(t, out float3 pos, out float3 tangent, out float3 up);
                 
-                // Dynamic Lane Count for this slice
                 float currentLaneCount = Mathf.Lerp(startLanes, endLanes, t);
-                float totalWidth = (currentLaneCount * laneWidth) + (shoulderWidth * 2);
+                float halfRoad = (currentLaneCount * laneWidth) / 2f;
+                float halfTotal = halfRoad + shoulderWidth;
 
                 float2 dir2D = math.normalizesafe(new float2(tangent.x, tangent.y), new float2(0, 1));
                 float3 side = new float3(-dir2D.y, dir2D.x, 0);
 
-                float halfRoad = (currentLaneCount * laneWidth) / 2f;
-                float halfTotal = totalWidth / 2f;
+                // 6 vertices for hard edges
+                Vector3 pLOut = (Vector3)(pos - (side * halfTotal));
+                Vector3 pLIn  = (Vector3)(pos - (side * halfRoad));
+                Vector3 pRIn  = (Vector3)(pos + (side * halfRoad));
+                Vector3 pROut = (Vector3)(pos + (side * halfTotal));
 
-                vertices.Add(SafeVector((Vector3)(pos - (side * halfTotal))));
-                vertices.Add(SafeVector((Vector3)(pos - (side * halfRoad))));
-                vertices.Add(SafeVector((Vector3)(pos + (side * halfRoad))));
-                vertices.Add(SafeVector((Vector3)(pos + (side * halfTotal))));
+                vertices.Add(SafeVector(pLOut)); // 0
+                vertices.Add(SafeVector(pLIn));  // 1
+                vertices.Add(SafeVector(pLIn));  // 2 (Duplicate for hard edge)
+                vertices.Add(SafeVector(pRIn));  // 3
+                vertices.Add(SafeVector(pRIn));  // 4 (Duplicate for hard edge)
+                vertices.Add(SafeVector(pROut)); // 5
 
+                colors.Add(shoulderColor);
                 colors.Add(shoulderColor);
                 colors.Add(roadColor);
                 colors.Add(roadColor);
+                colors.Add(shoulderColor);
                 colors.Add(shoulderColor);
             }
 
             for (int i = 0; i < longitudinalSegments; i++)
             {
-                int curr = i * 4;
-                int next = (i + 1) * 4;
+                int curr = i * 6;
+                int next = (i + 1) * 6;
                 
-                // Left Shoulder
-                AddQuad(triangles, curr, next, curr + 1, next + 1);
-                // Main Road
-                AddQuad(triangles, curr + 1, next + 1, curr + 2, next + 2);
-                // Right Shoulder
+                // Left Shoulder Ribbon (using verts 0 and 1)
+                AddQuad(triangles, curr + 0, next + 0, curr + 1, next + 1);
+                // Main Road Ribbon (using verts 2 and 3)
                 AddQuad(triangles, curr + 2, next + 2, curr + 3, next + 3);
+                // Right Shoulder Ribbon (using verts 4 and 5)
+                AddQuad(triangles, curr + 4, next + 4, curr + 5, next + 5);
             }
 
             mesh.SetVertices(vertices);

@@ -219,7 +219,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GPSPanic.Road.Spline.RoadMesh2D
   roadColor: {r: 0.012360981, g: 0.18431717, b: 0.78616345, a: 1}
-  shoulderColor: {r: 0.34276712, g: 0.61024565, b: 1, a: 1}
+  shoulderColor: {r: 0, g: 0.16015275, b: 0.38993704, a: 1}
   laneWidth: 3
   shoulderWidth: 0.5
   segmentsPerUnit: 2
@@ -242,6 +242,7 @@ MonoBehaviour:
   exitLaneCount: 3
   branchLaneCount: 0
   segmentType: 0
+  cachedLength: 0
 --- !u!1 &8871122537354302983
 GameObject:
   m_ObjectHideFlags: 0
