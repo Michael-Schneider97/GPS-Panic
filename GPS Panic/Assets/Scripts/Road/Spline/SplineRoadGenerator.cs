@@ -18,17 +18,18 @@ namespace GPSPanic.Road.Spline
 
         [Header("Highway Logic")]
         public int currentLaneCount = 3;
-        public float curveIntensity = 15f;
-        public float maxTurnAngle = 25f; // Max degrees the exit can deviate from the entrance
-        [Range(0, 1)] public float laneChangeChance = 0.3f;
-        [Range(0, 1)] public float turnChance = 0.7f;
+        [Tooltip("Max horizontal shift per segment (higher = sharper curves)")]
+        public float maxTurnCurvature = 10f; 
+        [Tooltip("How gradually the road changes direction (0 = purely random, 1 = perfectly straight)")]
+        [Range(0, 1)] public float headingSmoothness = 0.5f; 
+        [Range(0, 1)] public float laneChangeChance = 0.2f;
 
         public List<RoadSegmentData> activeSegments = new List<RoadSegmentData>();
         private Vector3 nextSpawnPosition = Vector3.zero;
         private Quaternion nextSpawnRotation = Quaternion.identity;
 
-        // Track the current 'heading' to ensure smooth continuity
-        private float currentWorldHeading = 0f;
+        // Persistent heading state for C1 continuity
+        private float currentLocalTurnOffset = 0f;
 
         private void Start()
         {
@@ -62,31 +63,33 @@ namespace GPSPanic.Road.Spline
                 endLanes = Mathf.Clamp(startLanes + change, 1, 7);
             }
 
-            // Instantiate with the current world rotation
+            // 1. Instantiate at previous exit
             RoadSegmentData segment = Instantiate(genericTemplate, nextSpawnPosition, nextSpawnRotation, transform);
 
+            // 2. Align entrance
             if (segment.entrancePoint != null)
             {
                 Vector3 localEntrancePos = segment.entrancePoint.localPosition;
                 segment.transform.position -= segment.transform.TransformDirection(localEntrancePos);
             }
 
-            // SMOOTH CURVATURE: Apply Bézier math
-            if (Random.value < turnChance)
-            {
-                ApplySmoothTurn(segment);
-            }
+            // 3. PERSISTENT SMOOTH TURNING
+            // Gradually evolve the turn offset to ensure smooth curves over larger timescales
+            float targetTurn = Random.Range(-maxTurnCurvature, maxTurnCurvature);
+            currentLocalTurnOffset = Mathf.Lerp(currentLocalTurnOffset, targetTurn, 1.0f - headingSmoothness);
+            
+            ApplyCurvature(segment, currentLocalTurnOffset);
 
+            // 4. Mesh Gen
             if (segment.TryGetComponent<RoadMesh2D>(out var roadMesh))
             {
                 roadMesh.Generate2DRoad(startLanes, endLanes);
             }
 
-            // CACHE LENGTH for locomotion stability
             segment.CacheLength();
-
             activeSegments.Add(segment);
 
+            // 5. Save state
             if (segment.exitPoint != null)
             {
                 nextSpawnPosition = segment.exitPoint.position;
@@ -95,7 +98,7 @@ namespace GPSPanic.Road.Spline
             }
         }
 
-        private void ApplySmoothTurn(RoadSegmentData segment)
+        private void ApplyCurvature(RoadSegmentData segment, float turnOffset)
         {
             var container = segment.GetComponent<UnityEngine.Splines.SplineContainer>();
             if (container == null) return;
@@ -103,37 +106,25 @@ namespace GPSPanic.Road.Spline
             var spline = container.Spline;
             if (spline.Count < 2) return;
 
-            // We manipulate the last point to create a curve
-            // For a smooth road, we want the entrance tangent to be purely 'Forward' (local Y)
-            // and the exit tangent to be our new desired direction.
-            
-            float turnAngle = Random.Range(-maxTurnAngle, maxTurnAngle);
             float roadLength = spline.GetLength();
-            
-            // Calculate new local position for the exit knot
-            // Assuming local Y is forward and local X is right/left
-            float rad = turnAngle * Mathf.Deg2Rad;
-            float targetX = Mathf.Sin(rad) * roadLength;
-            float targetY = Mathf.Cos(rad) * roadLength;
 
+            // Knot 1 (Exit): Apply the new evolved turn offset
             var lastKnot = spline[spline.Count - 1];
-            lastKnot.Position = new Unity.Mathematics.float3(targetX, targetY, 0);
+            lastKnot.Position = new Unity.Mathematics.float3(turnOffset, roadLength, 0);
             
-            // Set Tangents for smooth Bézier curve (C1 Continuity)
-            // In knot: Handle coming into the point
-            // Out knot: Handle leaving the point
-            float tangentStrength = roadLength * 0.5f;
+            // BEZIER TANGENTS: Force C1 Continuity
+            // We ensure that segments always enter straight (relative to the previous exit)
+            // and exit with a tangent that points toward the next segment's intended path.
+            float tangentWeight = roadLength * 0.4f;
             
-            // Start Knot: Force straight exit
             var firstKnot = spline[0];
-            firstKnot.TangentOut = new Unity.Mathematics.float3(0, tangentStrength, 0);
+            firstKnot.TangentOut = new Unity.Mathematics.float3(0, tangentWeight, 0);
             spline[0] = firstKnot;
 
-            // End Knot: Angled entry
-            lastKnot.TangentIn = new Unity.Mathematics.float3(Mathf.Sin(rad) * -tangentStrength, -Mathf.Cos(rad) * tangentStrength, 0);
+            lastKnot.TangentIn = new Unity.Mathematics.float3(0, -tangentWeight, 0);
             spline[spline.Count - 1] = lastKnot;
 
-            // Update sockets
+            // Force sockets to update to the new spline shape
             segment.SendMessage("SetupSockets", SendMessageOptions.DontRequireReceiver);
         }
 

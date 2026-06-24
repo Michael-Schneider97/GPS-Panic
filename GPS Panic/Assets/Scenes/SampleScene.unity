@@ -459,10 +459,9 @@ MonoBehaviour:
   spawnAheadDistance: 200
   initialSegments: 10
   currentLaneCount: 3
-  curveIntensity: 15
-  maxTurnAngle: 25
-  laneChangeChance: 0.3
-  turnChance: 0.5
+  maxTurnCurvature: 8
+  headingSmoothness: 0.5
+  laneChangeChance: 0
   activeSegments: []
 --- !u!1 &619394800
 GameObject:
